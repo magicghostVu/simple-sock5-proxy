@@ -51,8 +51,6 @@ class ForwardingDataHandler(
     // nhận data từ user-client
     // forward đến cho target
     override fun channelRead0(ctx: ChannelHandlerContext, msg: ByteBuf) {
-        // forward
-        // cache lại nếu null
         val targetPipeline = destinationPipeline
         if (targetPipeline != null) {
             targetPipeline.channel().writeAndFlush(msg.retainedDuplicate())
@@ -65,8 +63,9 @@ class ForwardingDataHandler(
     // nhận một số event
     override fun userEventTriggered(ctx: ChannelHandlerContext, evt: Any) {
         val userClientChannel = ctx.channel()
-        if (userClientChannel.isActive) {
-            if (evt is ForwardingCustomEvent) {
+
+        if (evt is ForwardingCustomEvent) {
+            if (userClientChannel.isActive) {
                 when (evt) {
                     is DestinationSocketActive -> {
                         destinationPipeline = evt.destinationPipeline
@@ -102,24 +101,19 @@ class ForwardingDataHandler(
                     }
                 }
             } else {
-                logger.warn("event is not supported {}", evt)
-            }
-        } else {
-            logger.warn("channel not active, can not handle user event {}", evt)
-            if (evt is ForwardingCustomEvent) {
                 when (evt) {
                     is DestinationSocketActive,
                     VerifyConnect -> {
-                        //no need
-                        //bufferFromPrevious.release()
+                        // do nothing
                     }
-
                     is ReceivedDataFromTarget -> {
                         val buffer = evt.buffer
                         buffer.release()
                     }
                 }
             }
+        } else {
+            logger.warn("event type not supported {}", evt)
         }
     }
 
