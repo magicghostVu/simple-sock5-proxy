@@ -3,13 +3,11 @@ package pack.simple_sock5
 import io.netty.bootstrap.ServerBootstrap
 import io.netty.channel.ChannelOption
 import io.netty.channel.socket.nio.NioServerSocketChannel
-import io.netty.util.ResourceLeakDetector
 import org.slf4j.LoggerFactory
 import pack.simple_sock5.config.ServerConfig
 
 
 fun main(vararg args: String) {
-    //ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID)
     val logger = LoggerFactory.getLogger("main")
     ServerConfig
     val server = ServerBootstrap()

@@ -21,12 +21,12 @@ class ForwardingDataHandler(
 ) : SimpleChannelInboundHandler<ByteBuf>(true) {
     private val logger = LoggerFactory.getLogger("forwarding-data")
 
-    var destinationPipeline: ChannelPipeline? = null
+    private var destinationPipeline: ChannelPipeline? = null
 
 
     override fun handlerAdded(ctx: ChannelHandlerContext) {
 
-        logger.info("change mode to forward, previous buffer is {}", bufferFromPrevious.readableBytes())
+        logger.info("change mode to forward, previous buffer size is {}", bufferFromPrevious.readableBytes())
 
         val destinationBoostrap = Bootstrap()
         destinationBoostrap.group(SharedEventLoop.eventLoopGroup)
@@ -63,10 +63,14 @@ class ForwardingDataHandler(
     // nhận một số event
     override fun userEventTriggered(ctx: ChannelHandlerContext, evt: Any) {
         val userClientChannel = ctx.channel()
-
         if (evt is ForwardingCustomEvent) {
             if (userClientChannel.isActive) {
                 when (evt) {
+                    is ReceivedDataFromTarget -> {
+                        val buffer = evt.buffer
+                        userClientChannel.writeAndFlush(buffer)
+                    }
+
                     is DestinationSocketActive -> {
                         destinationPipeline = evt.destinationPipeline
                         logger.info("destination socket activated")
@@ -87,11 +91,6 @@ class ForwardingDataHandler(
                         }
                     }
 
-                    is ReceivedDataFromTarget -> {
-                        val buffer = evt.buffer
-                        userClientChannel.writeAndFlush(buffer)
-                    }
-
                     VerifyConnect -> {
                         if (this.destinationPipeline == null) {
                             logger.error("can not connect to destination {}, close channel", targetConnect)
@@ -99,13 +98,24 @@ class ForwardingDataHandler(
                             ctx.channel().close()
                         }
                     }
+
+                    DestinationDisconnected -> {
+                        logger.info("destination socket disconnect, close use client channel")
+                        userClientChannel.close()
+                    }
                 }
             } else {
                 when (evt) {
                     is DestinationSocketActive,
-                    VerifyConnect -> {
+                    VerifyConnect,
+                        -> {
+                    }
+
+                    // impossible
+                    DestinationDisconnected -> {
                         // do nothing
                     }
+
                     is ReceivedDataFromTarget -> {
                         val buffer = evt.buffer
                         buffer.release()

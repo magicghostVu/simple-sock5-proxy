@@ -36,12 +36,12 @@ class ReadMethods(
             val numMethods = buffer.readByte().toInt()
             val methods = ByteArray(numMethods)
 
-            logger.info("num methods: {}", numMethods)
+            logger.debug("num methods: {}", numMethods)
 
             if (buffer.readableBytes() >= methods.size) {
                 buffer.readBytes(methods)
 
-                logger.info("done read methods {}", methods)
+                logger.debug("done read methods {}", methods)
 
                 var noAuthSupported = false
                 for (b in methods) {

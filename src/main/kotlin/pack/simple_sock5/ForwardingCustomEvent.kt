@@ -12,3 +12,5 @@ data class DestinationSocketActive(val destinationPipeline: ChannelPipeline) : F
 data class ReceivedDataFromTarget(val buffer: ByteBuf) : ForwardingCustomEvent()
 
 data object VerifyConnect: ForwardingCustomEvent()
+
+data object DestinationDisconnected: ForwardingCustomEvent()
