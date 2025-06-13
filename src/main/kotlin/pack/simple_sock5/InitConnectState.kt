@@ -26,8 +26,6 @@ class ReadMethods(
 
         val originReadIndex = buffer.readerIndex()
         return if (buffer.isReadable(2)) {
-
-
             val sockVersion = buffer.readByte();
             if (sockVersion != InitConnectProxyHandler.SOCKS_VERSION_5) {
                 logger.warn("client send wrong sock version {}", sockVersion)
@@ -94,11 +92,10 @@ class VerifyConnectCommand(override val channel: SocketChannel, val buffer: Comp
                 /*channel.close()
                 throw IllegalStateException("client send wrong version sock")*/
             }
-
             val cmd = buffer.readByte()
             if (cmd != InitConnectProxyHandler.CMD_CONNECT) {
                 logger.warn("client {} not send cmd connect, cmd is {}", channel, cmd)
-                //throw IllegalStateException("client not send cmd connect")
+                throw IllegalStateException("client not send cmd connect")
             }
             val reserve = buffer.readByte()
             val addressTypeCode = buffer.readByte()
@@ -108,9 +105,7 @@ class VerifyConnectCommand(override val channel: SocketChannel, val buffer: Comp
                 logger.warn("don't support address type code {}", addressTypeCode)
                 throw IllegalStateException("don't support address type code")
             }
-
-            logger.info("done verify command")
-
+            logger.debug("done verify command")
             var newState: InitConnectState = ReadDestinationHost(
                 channel,
                 addressType,
