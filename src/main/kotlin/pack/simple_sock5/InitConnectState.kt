@@ -119,7 +119,7 @@ class VerifyConnectCommand(override val channel: SocketChannel, val buffer: Comp
 
 class ReadDestinationHost(
     override val channel: SocketChannel,
-    val address: ProxyAddressType,
+    val addressType: ProxyAddressType,
     val buffer: CompositeByteBuf
 ) : InitConnectState() {
     override fun acceptBuffer(newBuffer: ByteBuf): InitConnectState {
@@ -128,7 +128,7 @@ class ReadDestinationHost(
         }
 
         val originReadIndex = buffer.readerIndex()
-        return when (address) {
+        return when (addressType) {
             ProxyAddressType.IP_V4 -> {
                 if (buffer.isReadable(4)) {
                     val arrayIp = ByteArray(4)
@@ -174,7 +174,6 @@ class ReadDestinationHost(
                         buffer.readerIndex(originReadIndex)
                         this
                     }
-
                 } else {
                     this
                 }

@@ -4,5 +4,8 @@ import io.netty.channel.MultiThreadIoEventLoopGroup
 import io.netty.channel.nio.NioIoHandler
 
 object SharedEventLoop {
-    val eventLoopGroup = MultiThreadIoEventLoopGroup(NioIoHandler.newFactory())
+    val eventLoopGroup = MultiThreadIoEventLoopGroup(
+        Runtime.getRuntime().availableProcessors(),
+        NioIoHandler.newFactory()
+    )
 }
