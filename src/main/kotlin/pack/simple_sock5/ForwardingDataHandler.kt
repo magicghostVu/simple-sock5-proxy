@@ -34,10 +34,10 @@ class ForwardingDataHandler(
         destinationBoostrap.handler(DestinationSocketHandling(ctx.pipeline()))
         destinationBoostrap.connect(targetConnect)
 
-        // set timeout for connect to target
+        // set timeout for checking connection to target
         ctx.executor().schedule(
             {
-                // trigger event to check connect
+                // trigger event to check connecting
                 ctx.pipeline().fireUserEventTriggered(
                     VerifyConnect,
                 )

@@ -17,5 +17,5 @@ fun main(vararg args: String) {
     server.option(ChannelOption.SO_REUSEADDR, true)
     server.childHandler(ClientHandler())
     server.bind(ServerConfig.DEPLOY_PORT)
-    logger.info("proxy started at port {}", ServerConfig.DEPLOY_PORT)
+    logger.info("sock5 proxy started at port {}", ServerConfig.DEPLOY_PORT)
 }

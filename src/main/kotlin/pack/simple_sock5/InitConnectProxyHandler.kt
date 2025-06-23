@@ -46,10 +46,13 @@ class InitConnectProxyHandler : SimpleChannelInboundHandler<ByteBuf>(true) {
                 if (s.targetPort > 0) {
                     val targetConnect = InetSocketAddress(s.hostName, s.targetPort)
                     logger.info("done init connect, init new client to forward data with target {}", targetConnect)
+                    val bufferPassForNextHandler = if (s.buffer.isReadable) {
+                        s.buffer
+                    } else Unpooled.EMPTY_BUFFER
                     ctx.pipeline().replace(
                         ClientHandler.initConnectHandlerName,
                         ClientHandler.forwardingHandlerName,
-                        ForwardingDataHandler(targetConnect, s.buffer)
+                        ForwardingDataHandler(targetConnect, bufferPassForNextHandler)
                     )
                 }
             }
