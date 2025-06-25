@@ -9,6 +9,7 @@ import io.netty.channel.SimpleChannelInboundHandler
 import io.netty.channel.socket.nio.NioSocketChannel
 import org.slf4j.LoggerFactory
 import pack.simple_sock5.forwarding.DestinationSocketHandling
+import java.lang.ref.WeakReference
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -35,10 +36,12 @@ class ForwardingDataHandler(
         destinationBoostrap.connect(targetConnect)
 
         // set timeout for checking connection to target
+        val ctxRef = WeakReference<ChannelHandlerContext>(ctx)
         ctx.executor().schedule(
             {
                 // trigger event to check connecting
-                ctx.pipeline().fireUserEventTriggered(
+                val savedContext = ctxRef.get()
+                savedContext?.pipeline()?.fireUserEventTriggered(
                     VerifyConnect,
                 )
             },

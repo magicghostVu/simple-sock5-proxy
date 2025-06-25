@@ -10,12 +10,12 @@ import pack.simple_sock5.config.ServerConfig
 fun main(vararg args: String) {
     val logger = LoggerFactory.getLogger("main")
     ServerConfig
-    val server = ServerBootstrap()
-    server.group(SharedEventLoop.eventLoopGroup)
-    server.channel(NioServerSocketChannel::class.java)
-    server.option(ChannelOption.SO_BACKLOG, 1024)
-    server.option(ChannelOption.SO_REUSEADDR, true)
-    server.childHandler(ClientHandler())
-    server.bind(ServerConfig.DEPLOY_PORT)
+    val bootstrap = ServerBootstrap()
+    bootstrap.group(SharedEventLoop.eventLoopGroup)
+    bootstrap.channel(NioServerSocketChannel::class.java)
+    bootstrap.option(ChannelOption.SO_BACKLOG, 1024)
+    bootstrap.option(ChannelOption.SO_REUSEADDR, true)
+    bootstrap.childHandler(ClientHandler())
+    bootstrap.bind(ServerConfig.DEPLOY_PORT)
     logger.info("sock5 proxy started at port {}", ServerConfig.DEPLOY_PORT)
 }
