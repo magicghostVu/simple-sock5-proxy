@@ -6,6 +6,8 @@ import java.util.Properties
 
 object ServerConfig {
     val DEPLOY_PORT: Int;
+    val PROXY_USERNAME: String;
+    val PROXY_PASSWORD: String;
 
     init {
         val configFile = File("config/server.properties")
@@ -15,5 +17,7 @@ object ServerConfig {
             p.load(it)
         }
         DEPLOY_PORT = p.getProperty("deploy.port").toInt()
+        PROXY_USERNAME = p.getProperty("proxy.username")
+        PROXY_PASSWORD = p.getProperty("proxy.password")
     }
 }

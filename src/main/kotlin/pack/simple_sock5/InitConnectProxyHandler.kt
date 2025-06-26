@@ -38,7 +38,8 @@ class InitConnectProxyHandler : SimpleChannelInboundHandler<ByteBuf>(true) {
         when (s) {
             is ReadDestinationHost,
             is ReadMethods,
-            is VerifyConnectCommand -> {
+            is VerifyConnectCommand,
+            is AuthenticateUserPass -> {
                 logger.debug("not done init connect, continue")
             }
 
@@ -66,6 +67,9 @@ class InitConnectProxyHandler : SimpleChannelInboundHandler<ByteBuf>(true) {
     companion object {
         const val SOCKS_VERSION_5: Byte = 0x05
         const val METHOD_NO_AUTHENTICATION_REQUIRED: Byte = 0x00
+        const val METHOD_USERNAME_PASSWORD: Byte = 0x02
+        const val AUTH_STATUS_SUCCESS: Byte = 0x00
+        const val AUTH_STATUS_FAILURE: Byte = 0x01
         const val CMD_CONNECT: Byte = 0x01
         const val ATYP_IPV4: Byte = 0x01
         const val ATYP_DOMAIN_NAME: Byte = 0x03

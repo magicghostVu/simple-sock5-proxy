@@ -6,6 +6,7 @@ import io.netty.buffer.Unpooled
 import io.netty.channel.socket.SocketChannel
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import pack.simple_sock5.config.ServerConfig
 import java.net.InetAddress
 
 sealed class InitConnectState {
@@ -41,31 +42,40 @@ class ReadMethods(
 
                 logger.debug("done read methods {}", methods)
 
-                var noAuthSupported = false
+                var authMethod: Byte = 0xFF.toByte() // No acceptable methods
                 for (b in methods) {
-                    if (b == InitConnectProxyHandler.METHOD_NO_AUTHENTICATION_REQUIRED) {
-                        noAuthSupported = true
+                    if (b == InitConnectProxyHandler.METHOD_USERNAME_PASSWORD) {
+                        authMethod = InitConnectProxyHandler.METHOD_USERNAME_PASSWORD
                         break
                     }
+                    if (b == InitConnectProxyHandler.METHOD_NO_AUTHENTICATION_REQUIRED) {
+                        authMethod = InitConnectProxyHandler.METHOD_NO_AUTHENTICATION_REQUIRED
+                        // Don't break yet, prefer username/password if available
+                    }
                 }
-                if (!noAuthSupported) {
-                    logger.warn("client not support no auth {}", methods)
-                    channel.close()
-                    throw IllegalStateException("client not support no auth")
-                } else {
-                    // response lại client và chuyển state sau???
-                    val response = channel.alloc().buffer()
-                    response.writeByte(InitConnectProxyHandler.SOCKS_VERSION_5.toInt())
-                    response.writeByte(InitConnectProxyHandler.METHOD_NO_AUTHENTICATION_REQUIRED.toInt())
-                    channel.writeAndFlush(response)
-                    logger.debug("response method")
-                    logger.debug("buffer remaining: {}", buffer.readableBytes())
-                    var newState: InitConnectState = VerifyConnectCommand(
-                        channel,
-                        buffer,
-                    )
-                    newState = newState.acceptBuffer(Unpooled.EMPTY_BUFFER)
-                    newState
+
+                val response = channel.alloc().buffer(2)
+                response.writeByte(InitConnectProxyHandler.SOCKS_VERSION_5.toInt())
+                response.writeByte(authMethod.toInt())
+                channel.writeAndFlush(response)
+
+                logger.debug("response method: {}", authMethod)
+                logger.debug("buffer remaining: {}", buffer.readableBytes())
+
+                return when (authMethod) {
+                    InitConnectProxyHandler.METHOD_USERNAME_PASSWORD -> {
+                        val newState: InitConnectState = AuthenticateUserPass(channel, buffer)
+                        newState.acceptBuffer(Unpooled.EMPTY_BUFFER)
+                    }
+                    InitConnectProxyHandler.METHOD_NO_AUTHENTICATION_REQUIRED -> {
+                        val newState: InitConnectState = VerifyConnectCommand(channel, buffer)
+                        newState.acceptBuffer(Unpooled.EMPTY_BUFFER)
+                    }
+                    else -> {
+                        logger.warn("client not support any supported auth methods {}", methods)
+                        channel.close()
+                        throw IllegalStateException("client not support any supported auth methods")
+                    }
                 }
             } else {
                 // reset lại reader index ban đầu
@@ -89,13 +99,20 @@ class VerifyConnectCommand(override val channel: SocketChannel, val buffer: Comp
             val clientSockVersion = buffer.readByte()
             if (clientSockVersion != InitConnectProxyHandler.SOCKS_VERSION_5) {
                 logger.warn("client {} send wrong version {}", channel.remoteAddress(), clientSockVersion)
-                /*channel.close()
-                throw IllegalStateException("client send wrong version sock")*/
+                val response = channel.alloc().buffer(2)
+                response.writeByte(InitConnectProxyHandler.SOCKS_VERSION_5.toInt())
+                response.writeByte(InitConnectProxyHandler.REP_GENERAL_SOCKS_SERVER_FAILURE.toInt())
+                channel.writeAndFlush(response).addListener { channel.close() }
+                return this
             }
             val cmd = buffer.readByte()
             if (cmd != InitConnectProxyHandler.CMD_CONNECT) {
                 logger.warn("client {} not send cmd connect, cmd is {}", channel, cmd)
-                throw IllegalStateException("client not send cmd connect")
+                val response = channel.alloc().buffer(2)
+                response.writeByte(InitConnectProxyHandler.SOCKS_VERSION_5.toInt())
+                response.writeByte(InitConnectProxyHandler.REP_COMMAND_NOT_SUPPORTED.toInt())
+                channel.writeAndFlush(response).addListener { channel.close() }
+                return this
             }
             val reserve = buffer.readByte()
             val addressTypeCode = buffer.readByte()
@@ -103,7 +120,11 @@ class VerifyConnectCommand(override val channel: SocketChannel, val buffer: Comp
             val addressType = ProxyAddressType.fromCode(addressTypeCode)
             if (addressType == null) {
                 logger.warn("don't support address type code {}", addressTypeCode)
-                throw IllegalStateException("don't support address type code")
+                val response = channel.alloc().buffer(2)
+                response.writeByte(InitConnectProxyHandler.SOCKS_VERSION_5.toInt())
+                response.writeByte(InitConnectProxyHandler.REP_ADDRESS_TYPE_NOT_SUPPORTED.toInt())
+                channel.writeAndFlush(response).addListener { channel.close() }
+                return this
             }
             logger.debug("done verify command")
             var newState: InitConnectState = ReadDestinationHost(
@@ -213,3 +234,68 @@ enum class ProxyAddressType(val byteCode: Byte) {
         }
     }
 }
+
+class AuthenticateUserPass(
+    override val channel: SocketChannel,
+    val buffer: CompositeByteBuf
+) : InitConnectState() {
+    override fun acceptBuffer(newBuffer: ByteBuf): InitConnectState {
+        if (newBuffer.isReadable) {
+            buffer.addComponent(true, newBuffer)
+        }
+
+        val originReadIndex = buffer.readerIndex()
+        return if (buffer.isReadable(2)) { // VER + ULEN
+            val version = buffer.readByte()
+            if (version != 0x01.toByte()) { // Username/Password Authentication Protocol version 1
+                logger.warn("Unsupported authentication version: {}", version)
+                channel.close()
+                throw IllegalStateException("Unsupported authentication version")
+            }
+
+            val ulen = buffer.readByte().toInt()
+            if (buffer.isReadable(ulen)) { // ULEN + UNAME
+                val unameBytes = ByteArray(ulen)
+                buffer.readBytes(unameBytes)
+                val uname = String(unameBytes)
+
+                if (buffer.isReadable(1)) { // PLEN
+                    val plen = buffer.readByte().toInt()
+                    if (buffer.isReadable(plen)) { // PLEN + PASSWD
+                        val passwdBytes = ByteArray(plen)
+                        buffer.readBytes(passwdBytes)
+                        val passwd = String(passwdBytes)
+
+                        val isAuthenticated = uname == ServerConfig.PROXY_USERNAME && passwd == ServerConfig.PROXY_PASSWORD
+
+                        val response = channel.alloc().buffer(2)
+                        response.writeByte(0x01) // Version
+                        if (isAuthenticated) {
+                            response.writeByte(InitConnectProxyHandler.AUTH_STATUS_SUCCESS.toInt())
+                            logger.info("Authentication successful for user: {}", uname)
+                            channel.writeAndFlush(response)
+                            VerifyConnectCommand(channel, buffer)
+                        } else {
+                            response.writeByte(InitConnectProxyHandler.AUTH_STATUS_FAILURE.toInt())
+                            logger.warn("Authentication failed for user: {}", uname)
+                            channel.writeAndFlush(response).addListener { channel.close() }
+                            this // Stay in this state, or close channel
+                        }
+                    } else {
+                        buffer.readerIndex(originReadIndex)
+                        this
+                    }
+                } else {
+                    buffer.readerIndex(originReadIndex)
+                    this
+                }
+            } else {
+                buffer.readerIndex(originReadIndex)
+                this
+            }
+        } else {
+            this
+        }
+    }
+}
+
