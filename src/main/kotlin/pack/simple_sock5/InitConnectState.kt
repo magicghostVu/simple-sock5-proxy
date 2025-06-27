@@ -320,7 +320,7 @@ class AuthenticateUserPass(
 
     private suspend fun authenticateUserNamePassword(userName: String, password: String): Boolean {
         logger.info("authen user {} password: {}", userName, password)
-        return false
+        return true
     }
 
     override fun acceptBuffer(newBuffer: ByteBuf): InitConnectState {
