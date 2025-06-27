@@ -26,20 +26,17 @@ class InitConnectProxyHandler : SimpleChannelInboundHandler<ByteBuf>(true) {
 
     override fun channelRead0(ctx: ChannelHandlerContext, msg: ByteBuf) {
         // move buffer to heap
-
         logger.debug("received {} byte", msg.readableBytes())
         val copied = Unpooled.buffer(msg.readableBytes())
         msg.readBytes(copied)
-
-
         stateInitConnect = stateInitConnect.acceptBuffer(copied)
-
         val s = stateInitConnect
         when (s) {
             is ReadDestinationHost,
             is ReadMethods,
             is VerifyConnectCommand,
-            is AuthenticateUserPass -> {
+            is AuthenticateUserPass,
+            is ReadUserPass -> {
                 logger.debug("not done init connect, continue")
             }
 
@@ -62,6 +59,54 @@ class InitConnectProxyHandler : SimpleChannelInboundHandler<ByteBuf>(true) {
 
     override fun channelInactive(ctx: ChannelHandlerContext) {
         logger.info("new channel inactive {}", ctx.channel().remoteAddress())
+    }
+
+
+    override fun userEventTriggered(ctx: ChannelHandlerContext, evt: Any) {
+        if (evt is EventForInitConnect) {
+            if (ctx.channel().isActive) {
+                when (val s = stateInitConnect) {
+                    is ReadDestinationHost,
+                    is ReadDestinationPort,
+                    is ReadMethods,
+                    is ReadUserPass,
+                    is VerifyConnectCommand -> {
+                        logger.warn("wrong state {} receive event, review code", s)
+                    }
+
+                    is AuthenticateUserPass -> {
+                        when (evt) {
+                            is AuthenResult -> {
+                                val response = ctx.channel().alloc().buffer(2)
+                                response.writeByte(0x01)
+                                if (evt.success) {
+                                    //todo: send authenticate success
+                                    response.writeByte(AUTH_STATUS_SUCCESS.toInt())
+                                    ctx.writeAndFlush(response)
+                                    // todo: chuyển sang state tiếp sau
+
+                                    stateInitConnect = VerifyConnectCommand(
+                                        s.channel,
+                                        s.buffer
+                                    )
+                                    ctx.pipeline().fireChannelRead(Unpooled.EMPTY_BUFFER)
+                                } else {
+                                    //todo: send authenticate failed
+                                    response.writeByte(AUTH_STATUS_FAILURE.toInt())
+                                    ctx.writeAndFlush(response).addListener {
+                                        ctx.channel().close()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                logger.warn("event {} come when channel not inactive", evt)
+            }
+        } else {
+            logger.warn("event {} not supported", evt)
+        }
     }
 
     companion object {
@@ -88,3 +133,8 @@ class InitConnectProxyHandler : SimpleChannelInboundHandler<ByteBuf>(true) {
         const val REP_ADDRESS_TYPE_NOT_SUPPORTED: Byte = 0x08
     }
 }
+
+sealed class EventForInitConnect()
+
+class AuthenResult(val success: Boolean) : EventForInitConnect()
+

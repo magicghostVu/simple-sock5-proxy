@@ -14,9 +14,7 @@ class DestinationSocketHandling(
     // maybe change cho weak ref
     val userClientPipeline: ChannelPipeline
 ) : SimpleChannelInboundHandler<ByteBuf>(true) {
-
     private val logger: Logger = LoggerFactory.getLogger("client-forwarding")
-
     override fun channelActive(ctx: ChannelHandlerContext) {
         userClientPipeline.fireUserEventTriggered(
             DestinationSocketActive(ctx.pipeline())

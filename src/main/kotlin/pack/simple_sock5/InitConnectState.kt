@@ -4,9 +4,12 @@ import io.netty.buffer.ByteBuf
 import io.netty.buffer.CompositeByteBuf
 import io.netty.buffer.Unpooled
 import io.netty.channel.socket.SocketChannel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import pack.simple_sock5.config.ServerConfig
+import java.lang.ref.WeakReference
 import java.net.InetAddress
 
 sealed class InitConnectState {
@@ -48,10 +51,10 @@ class ReadMethods(
                         authMethod = InitConnectProxyHandler.METHOD_USERNAME_PASSWORD
                         break
                     }
-                    if (b == InitConnectProxyHandler.METHOD_NO_AUTHENTICATION_REQUIRED) {
+                    /*if (b == InitConnectProxyHandler.METHOD_NO_AUTHENTICATION_REQUIRED) {
                         authMethod = InitConnectProxyHandler.METHOD_NO_AUTHENTICATION_REQUIRED
                         // Don't break yet, prefer username/password if available
-                    }
+                    }*/
                 }
 
                 val response = channel.alloc().buffer(2)
@@ -64,15 +67,12 @@ class ReadMethods(
 
                 return when (authMethod) {
                     InitConnectProxyHandler.METHOD_USERNAME_PASSWORD -> {
-                        val newState: InitConnectState = AuthenticateUserPass(channel, buffer)
+                        val newState: InitConnectState = ReadUserPass(channel, buffer)
                         newState.acceptBuffer(Unpooled.EMPTY_BUFFER)
                     }
-                    InitConnectProxyHandler.METHOD_NO_AUTHENTICATION_REQUIRED -> {
-                        val newState: InitConnectState = VerifyConnectCommand(channel, buffer)
-                        newState.acceptBuffer(Unpooled.EMPTY_BUFFER)
-                    }
+
                     else -> {
-                        logger.warn("client not support any supported auth methods {}", methods)
+                        logger.warn("client not support supported user-password auth methods {}", methods)
                         channel.close()
                         throw IllegalStateException("client not support any supported auth methods")
                     }
@@ -235,10 +235,17 @@ enum class ProxyAddressType(val byteCode: Byte) {
     }
 }
 
-class AuthenticateUserPass(
+class ReadUserPass(
     override val channel: SocketChannel,
     val buffer: CompositeByteBuf
 ) : InitConnectState() {
+
+
+    private fun resetBufferIndexAndReturnSame(indexToReset: Int): InitConnectState {
+        buffer.readerIndex(indexToReset)
+        return this
+    }
+
     override fun acceptBuffer(newBuffer: ByteBuf): InitConnectState {
         if (newBuffer.isReadable) {
             buffer.addComponent(true, newBuffer)
@@ -265,37 +272,62 @@ class AuthenticateUserPass(
                         val passwdBytes = ByteArray(plen)
                         buffer.readBytes(passwdBytes)
                         val passwd = String(passwdBytes)
-
-                        val isAuthenticated = uname == ServerConfig.PROXY_USERNAME && passwd == ServerConfig.PROXY_PASSWORD
-
-                        val response = channel.alloc().buffer(2)
-                        response.writeByte(0x01) // Version
-                        if (isAuthenticated) {
-                            response.writeByte(InitConnectProxyHandler.AUTH_STATUS_SUCCESS.toInt())
-                            logger.info("Authentication successful for user: {}", uname)
-                            channel.writeAndFlush(response)
-                            VerifyConnectCommand(channel, buffer)
-                        } else {
-                            response.writeByte(InitConnectProxyHandler.AUTH_STATUS_FAILURE.toInt())
-                            logger.warn("Authentication failed for user: {}", uname)
-                            channel.writeAndFlush(response).addListener { channel.close() }
-                            this // Stay in this state, or close channel
-                        }
+                        AuthenticateUserPass(
+                            channel,
+                            uname,
+                            passwd,
+                            buffer
+                        )
                     } else {
-                        buffer.readerIndex(originReadIndex)
-                        this
+                        resetBufferIndexAndReturnSame(originReadIndex)
                     }
                 } else {
-                    buffer.readerIndex(originReadIndex)
-                    this
+                    resetBufferIndexAndReturnSame(originReadIndex)
                 }
             } else {
-                buffer.readerIndex(originReadIndex)
-                this
+                resetBufferIndexAndReturnSame(originReadIndex)
             }
         } else {
             this
         }
+    }
+}
+
+class AuthenticateUserPass(
+    override val channel: SocketChannel,
+    val userName: String,
+    val password: String,
+    val buffer: CompositeByteBuf
+) : InitConnectState() {
+
+
+    init {
+        val refPipeline = WeakReference(channel.pipeline())
+        SharedEventLoop.shareScope.launch {
+            try {
+                val authenSuccess = authenticateUserNamePassword(userName, password)
+                val pipeline = refPipeline.get()
+                pipeline?.fireUserEventTriggered(AuthenResult(authenSuccess))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logger.error("err while authenticate user $userName", e)
+                refPipeline.get()?.fireUserEventTriggered(AuthenResult(false))
+            }
+        }
+    }
+
+
+    private suspend fun authenticateUserNamePassword(userName: String, password: String): Boolean {
+        logger.info("authen user {} password: {}", userName, password)
+        return false
+    }
+
+    override fun acceptBuffer(newBuffer: ByteBuf): InitConnectState {
+        if (newBuffer.isReadable) {
+            buffer.addComponent(true, newBuffer)
+        }
+        return this
     }
 }
 
