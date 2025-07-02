@@ -8,11 +8,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import pack.simple_sock5.config.ServerConfig
+import pack.simple_sock5.auth.Authenticator
 import java.lang.ref.WeakReference
 import java.net.InetAddress
 
-sealed class InitConnectState {
+sealed class InitConnectState(val authenticator: Authenticator) {
     abstract val channel: SocketChannel
     abstract fun acceptBuffer(newBuffer: ByteBuf): InitConnectState
     protected val logger: Logger = LoggerFactory.getLogger("init-connect-state")
@@ -20,8 +20,9 @@ sealed class InitConnectState {
 
 class ReadMethods(
     override val channel: SocketChannel,
-    val buffer: CompositeByteBuf = Unpooled.compositeBuffer()
-) : InitConnectState() {
+    val buffer: CompositeByteBuf = Unpooled.compositeBuffer(),
+    authenticator: Authenticator
+) : InitConnectState(authenticator) {
     override fun acceptBuffer(newBuffer: ByteBuf): InitConnectState {
 
         if (newBuffer.isReadable) {
@@ -67,7 +68,7 @@ class ReadMethods(
 
                 return when (authMethod) {
                     InitConnectProxyHandler.METHOD_USERNAME_PASSWORD -> {
-                        val newState: InitConnectState = ReadUserPass(channel, buffer)
+                        val newState: InitConnectState = ReadUserPass(channel, buffer, authenticator)
                         newState.acceptBuffer(Unpooled.EMPTY_BUFFER)
                     }
 
@@ -88,7 +89,7 @@ class ReadMethods(
     }
 }
 
-class VerifyConnectCommand(override val channel: SocketChannel, val buffer: CompositeByteBuf) : InitConnectState() {
+class VerifyConnectCommand(override val channel: SocketChannel, val buffer: CompositeByteBuf, authenticator: Authenticator) : InitConnectState(authenticator) {
     override fun acceptBuffer(newBuffer: ByteBuf): InitConnectState {
         if (newBuffer.isReadable) {
             buffer.addComponent(true, newBuffer)
@@ -131,6 +132,7 @@ class VerifyConnectCommand(override val channel: SocketChannel, val buffer: Comp
                 channel,
                 addressType,
                 buffer,
+                authenticator
             )
             newState = newState.acceptBuffer(Unpooled.EMPTY_BUFFER)
             newState
@@ -141,8 +143,9 @@ class VerifyConnectCommand(override val channel: SocketChannel, val buffer: Comp
 class ReadDestinationHost(
     override val channel: SocketChannel,
     val addressType: ProxyAddressType,
-    val buffer: CompositeByteBuf
-) : InitConnectState() {
+    val buffer: CompositeByteBuf,
+    authenticator: Authenticator
+) : InitConnectState(authenticator) {
     override fun acceptBuffer(newBuffer: ByteBuf): InitConnectState {
         if (newBuffer.isReadable) {
             buffer.addComponent(true, newBuffer)
@@ -155,7 +158,7 @@ class ReadDestinationHost(
                     val arrayIp = ByteArray(4)
                     buffer.readBytes(arrayIp)
                     val hostName = InetAddress.getByAddress(arrayIp).hostName
-                    var newState: InitConnectState = ReadDestinationPort(channel, hostName, buffer)
+                    var newState: InitConnectState = ReadDestinationPort(channel, hostName, buffer, authenticator)
                     newState = newState.acceptBuffer(Unpooled.EMPTY_BUFFER)
                     newState
                 } else {
@@ -169,7 +172,7 @@ class ReadDestinationHost(
                     val arrayIp = ByteArray(16)
                     buffer.readBytes(arrayIp)
                     val hostName = InetAddress.getByAddress(arrayIp).hostName
-                    var newState: InitConnectState = ReadDestinationPort(channel, hostName, buffer)
+                    var newState: InitConnectState = ReadDestinationPort(channel, hostName, buffer, authenticator)
                     newState = newState.acceptBuffer(Unpooled.EMPTY_BUFFER)
                     newState
                 } else {
@@ -186,7 +189,7 @@ class ReadDestinationHost(
                         buffer.readBytes(bufferForDomainName)
 
                         val hostName = String(bufferForDomainName)
-                        var newState: InitConnectState = ReadDestinationPort(channel, hostName, buffer)
+                        var newState: InitConnectState = ReadDestinationPort(channel, hostName, buffer, authenticator)
                         newState = newState.acceptBuffer(Unpooled.EMPTY_BUFFER)
                         newState
                     }
@@ -207,8 +210,9 @@ class ReadDestinationHost(
 class ReadDestinationPort(
     override val channel: SocketChannel,
     val hostName: String,
-    val buffer: CompositeByteBuf
-) : InitConnectState() {
+    val buffer: CompositeByteBuf,
+    authenticator: Authenticator
+) : InitConnectState(authenticator) {
 
     var targetPort: Int = -1;
 
@@ -237,8 +241,9 @@ enum class ProxyAddressType(val byteCode: Byte) {
 
 class ReadUserPass(
     override val channel: SocketChannel,
-    val buffer: CompositeByteBuf
-) : InitConnectState() {
+    val buffer: CompositeByteBuf,
+    authenticator: Authenticator
+) : InitConnectState(authenticator) {
 
 
     private fun resetBufferIndexAndReturnSame(indexToReset: Int): InitConnectState {
@@ -276,7 +281,8 @@ class ReadUserPass(
                             channel,
                             uname,
                             passwd,
-                            buffer
+                            buffer,
+                            authenticator
                         )
                     } else {
                         resetBufferIndexAndReturnSame(originReadIndex)
@@ -297,15 +303,16 @@ class AuthenticateUserPass(
     override val channel: SocketChannel,
     val userName: String,
     val password: String,
-    val buffer: CompositeByteBuf
-) : InitConnectState() {
+    val buffer: CompositeByteBuf,
+    authenticator: Authenticator
+) : InitConnectState(authenticator) {
 
 
     init {
         val refPipeline = WeakReference(channel.pipeline())
         SharedEventLoop.shareScope.launch {
             try {
-                val authenSuccess = authenticateUserNamePassword(userName, password)
+                val authenSuccess = authenticator.authenticate(userName, password)
                 val pipeline = refPipeline.get()
                 pipeline?.fireUserEventTriggered(AuthenResult(authenSuccess))
             } catch (e: CancellationException) {
@@ -318,10 +325,7 @@ class AuthenticateUserPass(
     }
 
 
-    private suspend fun authenticateUserNamePassword(userName: String, password: String): Boolean {
-        logger.info("authen user {} password: {}", userName, password)
-        return true
-    }
+    
 
     override fun acceptBuffer(newBuffer: ByteBuf): InitConnectState {
         if (newBuffer.isReadable) {

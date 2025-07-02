@@ -3,11 +3,13 @@ package pack.simple_sock5
 import io.netty.channel.ChannelInitializer
 import io.netty.channel.socket.SocketChannel
 
-class ClientHandler : ChannelInitializer<SocketChannel>() {
+import pack.simple_sock5.auth.Authenticator
+
+class ClientHandler(private val authenticator: Authenticator) : ChannelInitializer<SocketChannel>() {
 
     override fun initChannel(channel: SocketChannel) {
         val pipeline = channel.pipeline()
-        pipeline.addLast(initConnectHandlerName, InitConnectProxyHandler())
+        pipeline.addLast(initConnectHandlerName, InitConnectProxyHandler(authenticator))
     }
 
     companion object {

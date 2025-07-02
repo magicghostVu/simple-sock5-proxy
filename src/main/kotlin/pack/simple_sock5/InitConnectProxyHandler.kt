@@ -10,10 +10,13 @@ import org.slf4j.LoggerFactory
 import java.net.InetSocketAddress
 
 
+import pack.simple_sock5.auth.Authenticator
+
+
 // handler này sẽ bị thay thế
 //  sau khi init connect thành công
 //  và chuyển sang chế độ streaming với target server
-class InitConnectProxyHandler : SimpleChannelInboundHandler<ByteBuf>(true) {
+class InitConnectProxyHandler(private val authenticator: Authenticator) : SimpleChannelInboundHandler<ByteBuf>(true) {
 
     private val logger: Logger = LoggerFactory.getLogger("init-connect")
 
@@ -21,7 +24,7 @@ class InitConnectProxyHandler : SimpleChannelInboundHandler<ByteBuf>(true) {
 
     override fun channelActive(ctx: ChannelHandlerContext) {
         logger.info("new channel active {}", ctx.channel().remoteAddress())
-        stateInitConnect = ReadMethods(ctx.channel() as SocketChannel)
+        stateInitConnect = ReadMethods(ctx.channel() as SocketChannel, Unpooled.compositeBuffer(), authenticator)
     }
 
     override fun channelRead0(ctx: ChannelHandlerContext, msg: ByteBuf) {
@@ -84,14 +87,14 @@ class InitConnectProxyHandler : SimpleChannelInboundHandler<ByteBuf>(true) {
                                     response.writeByte(AUTH_STATUS_SUCCESS.toInt())
                                     ctx.writeAndFlush(response)
                                     // todo: chuyển sang state tiếp sau
-
                                     stateInitConnect = VerifyConnectCommand(
                                         s.channel,
-                                        s.buffer
+                                        s.buffer,
+                                        authenticator
                                     )
                                     ctx.pipeline().fireChannelRead(Unpooled.EMPTY_BUFFER)
                                 } else {
-                                    //todo: send authenticate failed
+                                    //todo: send authenticate failed, close channel
                                     response.writeByte(AUTH_STATUS_FAILURE.toInt())
                                     ctx.writeAndFlush(response).addListener {
                                         ctx.channel().close()
