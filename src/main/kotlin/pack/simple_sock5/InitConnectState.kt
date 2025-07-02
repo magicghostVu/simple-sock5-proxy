@@ -312,7 +312,7 @@ class AuthenticateUserPass(
         val refPipeline = WeakReference(channel.pipeline())
         SharedEventLoop.shareScope.launch {
             try {
-                val authenSuccess = authenticator.authenticate(userName, password)
+                val authenSuccess = authenticator.authenticate(channel,userName, password)
                 val pipeline = refPipeline.get()
                 pipeline?.fireUserEventTriggered(AuthenResult(authenSuccess))
             } catch (e: CancellationException) {
